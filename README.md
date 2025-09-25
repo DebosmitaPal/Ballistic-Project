@@ -74,28 +74,31 @@ npm run dev
 ## Project Structure
 
 ├── backend
-│ ├── server.js
-│ ├── models
-│ │ ├── user.js
-│ │ ├── image.js
-│ └── ...
+│   ├── server.js
+│   ├── models
+│   │   ├── user.js
+│   │   ├── image.js
+│   └── ...
+│
 ├── frontend
-│ ├── components
-│ │ ├── Hero.jsx
-│ │ ├── Features.jsx
-│ │ ├── Process.jsx
-│ │ ├── Testimonials.jsx
-│ │ ├── FAQ.jsx
-│ │ ├── Navbar.jsx
-│ │ ├── LoginModal.jsx
-│ │ ├── Analyze.jsx
-│ │ ├── Counting.jsx
-│ │ ├── Footer.jsx
-│ ├── App.jsx
-│ ├── main.jsx
-│ ├── index.html
-│ └── index.css
+│   ├── components
+│   │   ├── Hero.jsx
+│   │   ├── Features.jsx
+│   │   ├── Process.jsx
+│   │   ├── Testimonials.jsx
+│   │   ├── FAQ.jsx
+│   │   ├── Navbar.jsx
+│   │   ├── LoginModal.jsx
+│   │   ├── Analyze.jsx
+│   │   ├── Counting.jsx
+│   │   ├── Footer.jsx
+│   ├── App.jsx
+│   ├── main.jsx
+│   ├── index.html
+│   ├── index.css
+│
 └── package.json
+
 
 ---
 
