@@ -16,8 +16,10 @@ const app = express();
 
 // Middleware
 app.use(express.json());
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5173';
+
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: BACKEND_URL,
   credentials: true
 }));
 
