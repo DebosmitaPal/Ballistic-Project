@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 export default function Analyze({ user, onLoginClick, onLogout }) {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -6,13 +6,9 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
   const [imagePreview, setImagePreview] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
-  const [storedImages, setStoredImages] = useState(() => {
-    const stored = JSON.parse(localStorage.getItem('ballisticImages') || '[]');
-    return stored;
-  });
+  const [storedImages, setStoredImages] = useState([]);
   const fileInputRef = useRef(null);
 
-  // Sample randomized detail values
   const calibers = ['9mm', '7.62mm', '5.56mm', '45 ACP'];
   const weaponTypes = ['Pistol', 'Rifle', 'Revolver', 'SMG'];
   const striationPatterns = ['Unique helical pattern', 'Straight grooves', 'Wavy pattern', 'Cross-hatch pattern'];
@@ -24,7 +20,43 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
     return arr[Math.floor(Math.random() * arr.length)];
   }
 
-  // Handle drag events
+  useEffect(() => {
+    async function fetchImages() {
+      if (!user?.id) return;
+      try {
+        const res = await fetch(`${import.meta.env.VITE_API_URL}/api/images?userId=${user.id}`);
+        const data = await res.json();
+        setStoredImages(data.images || []);
+      } catch {
+        setStoredImages([]);
+      }
+    }
+    fetchImages();
+  }, [user]);
+
+  async function generateFileHash(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        crypto.subtle.digest("SHA-256", reader.result).then((hashBuffer) => {
+          const hashArray = Array.from(new Uint8Array(hashBuffer));
+          const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+          resolve(hashHex);
+        });
+      };
+      reader.onerror = () => reject("Failed to read file for hashing");
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  async function findExistingImage(file) {
+    if (storedImages.length > 0 && storedImages[0].contentHash) {
+      const fileHash = await generateFileHash(file);
+      return storedImages.find((img) => img.contentHash === fileHash);
+    }
+    return storedImages.find((img) => img.originalName === file.name && img.size === file.size);
+  }
+
   function handleDrag(e) {
     e.preventDefault();
     e.stopPropagation();
@@ -35,7 +67,6 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
     }
   }
 
-  // Handle drop event
   function handleDrop(e) {
     e.preventDefault();
     e.stopPropagation();
@@ -52,7 +83,6 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
     }
   }
 
-  // Handle file input change
   function handleFileChange(e) {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
@@ -65,7 +95,6 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
     }
   }
 
-  // Create image preview
   function createImagePreview(file) {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -74,56 +103,11 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
     reader.readAsDataURL(file);
   }
 
-  // Generate a simple hash for image comparison
-  function generateImageHash(file) {
-    return file.name + '_' + file.size + '_' + file.lastModified;
-  }
-
-  // Store image in database with randomized details
-  function storeImage(file, imageData) {
-    const imageHash = generateImageHash(file);
-    const imageRecord = {
-      id: Date.now(),
-      hash: imageHash,
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      uploadDate: new Date().toISOString(),
-      preview: imageData,
-      details: {
-        caliber: getRandomItem(calibers),
-        weaponType: getRandomItem(weaponTypes),
-        striationPattern: getRandomItem(striationPatterns),
-        landAndGroove: getRandomItem(landAndGrooves),
-        twistDirection: getRandomItem(twistDirections),
-        confidence: getRandomItem(confidences),
-      }
-    };
-
-    const updatedImages = [...storedImages, imageRecord];
-    setStoredImages(updatedImages);
-    try {
-      localStorage.setItem('ballisticImages', JSON.stringify(updatedImages));
-    } catch (e) {
-      console.log('Storage limit reached');
-    }
-
-    return imageRecord;
-  }
-
-  // Check if image already exists
-  function findExistingImage(file) {
-    const imageHash = generateImageHash(file);
-    return storedImages.find(img => img.hash === imageHash);
-  }
-
-  // Handle click to browse
   function handleBrowseClick() {
     fileInputRef.current?.click();
   }
 
-  // Handle upload and compare
-  function handleUploadAndCompare() {
+  async function handleUploadAndCompare() {
     if (!selectedFile) {
       alert('Please select an image first');
       return;
@@ -132,8 +116,8 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
     setIsProcessing(true);
     setAnalysisResult(null);
 
-    setTimeout(() => {
-      const existingImage = findExistingImage(selectedFile);
+    setTimeout(async () => {
+      const existingImage = await findExistingImage(selectedFile);
 
       if (existingImage) {
         // Image found - successful match
@@ -143,23 +127,50 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
           message: 'Successfully matched!',
           confidence: existingImage.details.confidence
         });
+        setImagePreview(`${import.meta.env.VITE_API_URL}/api/image/${existingImage.preview}`);
       } else {
-        // Image not found - store it for future matches
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const newImageRecord = storeImage(selectedFile, e.target.result);
+        // Image not found - upload it
+        const details = {
+          caliber: getRandomItem(calibers),
+          weaponType: getRandomItem(weaponTypes),
+          striationPattern: getRandomItem(striationPatterns),
+          landAndGroove: getRandomItem(landAndGrooves),
+          twistDirection: getRandomItem(twistDirections),
+          confidence: getRandomItem(confidences),
+        };
+
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('userId', user.id);
+        formData.append('details', JSON.stringify(details));
+
+        const contentHash = await generateFileHash(selectedFile);
+        formData.append('contentHash', contentHash);
+
+        try {
+          const res = await fetch(`${import.meta.env.VITE_API_URL}/api/upload`, {
+            method: "POST",
+            body: formData,
+          });
+          const data = await res.json();
+
+          if (!res.ok) throw new Error(data.error || "Upload failed");
+
+          setStoredImages(prev => [...prev, data.image]);
           setAnalysisResult({
             success: false,
             message: 'Sorry, this image could not be matched with our database.',
             subMessage: 'The image has been added to our database for future reference.',
-            storedId: newImageRecord.id
+            storedId: data.image._id
           });
-        };
-        reader.readAsDataURL(selectedFile);
+          setImagePreview(`${import.meta.env.VITE_API_URL}/api/image/${data.image.preview}`);
+        } catch (err) {
+          alert("Image upload failed");
+        }
       }
 
       setIsProcessing(false);
-    }, 3000); // 3 seconds simulation
+    }, 3000);
   }
 
   return (
@@ -181,15 +192,15 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
               <div
                 className={`relative border-2 border-dashed rounded-xl p-12 text-center transition-all duration-300 ${
                   dragActive
-                    ? 'border-cyan-500 bg-cyan-50'
-                    : 'border-cyan-300 hover:border-cyan-400 hover:bg-cyan-25'
+                    ? "border-cyan-500 bg-cyan-50"
+                    : "border-cyan-300 hover:border-cyan-400 hover:bg-cyan-25"
                 }`}
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
                 onDragOver={handleDrag}
                 onDrop={handleDrop}
                 onClick={handleBrowseClick}
-                style={{ cursor: 'pointer' }}
+                style={{ cursor: "pointer" }}
               >
                 {/* Cloud Upload Icon */}
                 <div className="mb-6">
@@ -226,9 +237,7 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
                     </p>
                   </div>
                 ) : (
-                  <p className="text-gray-500">
-                    No file chosen
-                  </p>
+                  <p className="text-gray-500">No file chosen</p>
                 )}
 
                 {/* Hidden file input */}
@@ -250,13 +259,28 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
                     text-white font-semibold py-3 px-8 rounded-full text-lg
                     transform hover:scale-105 transition-all duration-200 shadow-lg
                     flex items-center justify-center mx-auto space-x-2
-                    ${(!selectedFile || isProcessing) ? 'opacity-50 cursor-not-allowed transform-none' : ''}`}
+                    ${!selectedFile || isProcessing ? "opacity-50 cursor-not-allowed transform-none" : ""}`}
                 >
                   {isProcessing ? (
                     <>
-                      <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      <svg
+                        className="w-5 h-5 animate-spin"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        ></circle>
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        ></path>
                       </svg>
                       <span>Processing...</span>
                     </>
@@ -281,7 +305,7 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
                 </button>
               </div>
 
-              {/* Additional Info */}
+              {/* Supported formats */}
               <div className="mt-8 bg-gray-50 rounded-lg p-6">
                 <h4 className="font-semibold text-gray-800 mb-3">Supported Formats:</h4>
                 <div className="flex flex-wrap gap-2">
@@ -301,7 +325,7 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
             </div>
           </div>
 
-          {/* Results Section */}
+          {/* Analysis Results */}
           {selectedFile && (
             <div className="mt-8 bg-white p-8 border-2 border-lilac-400 rounded-3xl shadow-[0_0_15px_4px_rgba(200,162,200,0.7)]">
               <h2 className="text-2xl font-bold text-gray-800 mb-6">Analysis Preview</h2>
@@ -317,8 +341,18 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
                       />
                     ) : (
                       <div className="text-center">
-                        <svg className="w-12 h-12 mx-auto text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        <svg
+                          className="w-12 h-12 mx-auto text-gray-400 mb-2"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                          />
                         </svg>
                         <span className="text-gray-500">Loading preview...</span>
                       </div>
@@ -353,7 +387,6 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
                     )}
                   </div>
 
-                  {/* File Details */}
                   <div className="mt-6 p-4 bg-gray-50 rounded-lg">
                     <h4 className="font-medium text-gray-800 mb-2">File Details:</h4>
                     <p className="text-sm text-gray-600">Name: {selectedFile.name}</p>
@@ -365,15 +398,18 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
             </div>
           )}
 
-          {/* Analysis Results Section */}
           {analysisResult && (
             <div className="mt-8 bg-white p-8 border-2 border-green-400 rounded-3xl shadow-[0_0_15px_4px_rgba(52,211,153,0.7)]">
-              <div className={`text-center p-6 rounded-lg mb-6 ${
-                analysisResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
-              }`}>
-                <div className={`w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center ${
-                  analysisResult.success ? 'bg-green-500' : 'bg-red-500'
-                }`}>
+              <div
+                className={`text-center p-6 rounded-lg mb-6 ${
+                  analysisResult.success ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-200"
+                }`}
+              >
+                <div
+                  className={`w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center ${
+                    analysisResult.success ? "bg-green-500" : "bg-red-500"
+                  }`}
+                >
                   {analysisResult.success ? (
                     <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -385,15 +421,15 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
                   )}
                 </div>
 
-                <h3 className={`text-2xl font-bold mb-2 ${
-                  analysisResult.success ? 'text-green-800' : 'text-red-800'
-                }`}>
+                <h3
+                  className={`text-2xl font-bold mb-2 ${
+                    analysisResult.success ? "text-green-800" : "text-red-800"
+                  }`}
+                >
                   {analysisResult.message}
                 </h3>
 
-                {analysisResult.subMessage && (
-                  <p className="text-gray-600 mb-4">{analysisResult.subMessage}</p>
-                )}
+                {analysisResult.subMessage && <p className="text-gray-600 mb-4">{analysisResult.subMessage}</p>}
 
                 {analysisResult.success && (
                   <div className="bg-white p-4 rounded-lg shadow-sm">
@@ -407,39 +443,57 @@ export default function Analyze({ user, onLoginClick, onLogout }) {
                 )}
               </div>
 
-              {/* Detailed Results for Successful Match */}
               {analysisResult.success && analysisResult.match && (
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
                     <h4 className="font-semibold text-gray-800 mb-3">Matched Image Details:</h4>
                     <div className="bg-gray-50 p-4 rounded-lg space-y-2">
-                      <p><span className="font-medium">File Name:</span> {analysisResult.match.name}</p>
-                      <p><span className="font-medium">Upload Date:</span> {new Date(analysisResult.match.uploadDate).toLocaleString()}</p>
-                      <p><span className="font-medium">File Size:</span> {(analysisResult.match.size / 1024 / 1024).toFixed(2)} MB</p>
-                      <p><span className="font-medium">Database ID:</span> #{analysisResult.match.id}</p>
+                      <p>
+                        <span className="font-medium">File Name:</span> {analysisResult.match.name}
+                      </p>
+                      <p>
+                        <span className="font-medium">Upload Date:</span>{" "}
+                        {new Date(analysisResult.match.uploadDate).toLocaleString()}
+                      </p>
+                      <p>
+                        <span className="font-medium">File Size:</span>{" "}
+                        {(analysisResult.match.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                      <p>
+                        <span className="font-medium">Database ID:</span> #{analysisResult.match.id}
+                      </p>
                     </div>
                   </div>
 
                   <div>
                     <h4 className="font-semibold text-gray-800 mb-3">Ballistic Analysis:</h4>
                     <div className="bg-gray-50 p-4 rounded-lg space-y-2">
-                      <p><span className="font-medium">Caliber:</span> {analysisResult.match.details.caliber}</p>
-                      <p><span className="font-medium">Weapon Type:</span> {analysisResult.match.details.weaponType}</p>
-                      <p><span className="font-medium">Striation Pattern:</span> {analysisResult.match.details.striationPattern}</p>
-                      <p><span className="font-medium">Land & Groove:</span> {analysisResult.match.details.landAndGroove}</p>
-                      <p><span className="font-medium">Twist Direction:</span> {analysisResult.match.details.twistDirection}</p>
+                      <p>
+                        <span className="font-medium">Caliber:</span> {analysisResult.match.details.caliber}
+                      </p>
+                      <p>
+                        <span className="font-medium">Weapon Type:</span> {analysisResult.match.details.weaponType}
+                      </p>
+                      <p>
+                        <span className="font-medium">Striation Pattern:</span> {analysisResult.match.details.striationPattern}
+                      </p>
+                      <p>
+                        <span className="font-medium">Land & Groove:</span> {analysisResult.match.details.landAndGroove}
+                      </p>
+                      <p>
+                        <span className="font-medium">Twist Direction:</span> {analysisResult.match.details.twistDirection}
+                      </p>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Database Status for New Images */}
               {!analysisResult.success && (
                 <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
                   <h4 className="font-semibold text-blue-800 mb-2">Database Updated</h4>
                   <p className="text-blue-700 text-sm">
-                    This image has been stored in our database with ID #{analysisResult.storedId}. 
-                    Future uploads of this image will result in a successful match.
+                    This image has been stored in our database with ID #{analysisResult.storedId}. Future uploads of this image
+                    will result in a successful match.
                   </p>
                 </div>
               )}
