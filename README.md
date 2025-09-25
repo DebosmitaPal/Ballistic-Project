@@ -72,7 +72,7 @@ npm run dev
 ---
 
 ## Project Structure
-
+```
 ├── backend
 │   ├── server.js
 │   ├── models
@@ -98,6 +98,8 @@ npm run dev
 │   ├── index.css
 │
 └── package.json
+
+```
 
 
 
