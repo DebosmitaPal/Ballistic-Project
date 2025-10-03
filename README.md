@@ -105,13 +105,5 @@ npm run dev
 
 ---
 
-## Contributing
-
-Contributions are welcome! Please fork the repository and submit a pull request.
-
 ---
-
-## Contact
-
-For support or questions, contact: support@ballisticsid.com
 
