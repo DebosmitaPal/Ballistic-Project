@@ -100,10 +100,3 @@ npm run dev
 └── package.json
 
 ```
-
-
-
----
-
----
-
